@@ -1,0 +1,7 @@
+version: '3.9'
+services:
+  ubuntu:
+    build: .
+    privileged: true
+    stdin_open: true
+    tty: true
