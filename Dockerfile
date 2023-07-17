@@ -1,51 +1,60 @@
-FROM ubuntu:21.10
-
-USER root
+FROM debian:bookworm-slim as build
 
 ENV DEBIAN_FRONTEND="noninteractive"
+
+# Install libraries needed to compile box
 RUN dpkg --add-architecture armhf \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends --no-install-suggests git cmake cabextract gcc-arm-linux-gnueabihf libc6-dev-armhf-cross libc6:armhf systemctl binfmt-support wget
-
-WORKDIR /usr
-RUN git clone https://github.com/eckucukoglu/arm-linux-gnueabihf
+ && apt-get update \
+ && apt-get install -y --no-install-recommends --no-install-suggests git wget curl cmake python3 build-essential gcc-arm-linux-gnueabihf libc6-dev-armhf-cross libc6:armhf libstdc++6:armhf ca-certificates 
 
 WORKDIR /root
+
+# Build box86
 RUN git clone https://github.com/ptitSeb/box86 \
-    && cd box86 \
-    && mkdir build \
-    && cd build \
-    && cmake .. -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_C_COMPILER_TARGET=arm-linux-gnueabihf -DARM_DYNAREC=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    && make -j3 \
-    && make install 
+ && mkdir box86/build \
+ && cd box86/build \
+ && cmake .. -DRPI4ARM64=1 -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+ && make -j$(nproc) \
+ && make install DESTDIR=/box 
+
+# Build box64
 RUN git clone https://github.com/ptitSeb/box64 \
-    && cd box64 \
-    && mkdir build \
-    && cd build \
-    && cmake .. -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    && make -j3 \
-    && make install 
+ && mkdir box64/build \
+ && cd box64/build \
+ && cmake .. -DRPI4ARM64=1 -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+ && make -j$(nproc) \
+ && make install DESTDIR=/box
 
-WORKDIR /root/Downloads
-RUN wget https://dl.winehq.org/wine-builds/debian/dists/buster/main/binary-i386/wine-stable-i386_6.0.2~buster-1_i386.deb \
-    && wget https://dl.winehq.org/wine-builds/debian/dists/buster/main/binary-i386/wine-stable_6.0.2~buster-1_i386.deb \
-    && wget https://dl.winehq.org/wine-builds/debian/dists/buster/main/binary-amd64/wine-stable-amd64_6.0.2~buster-1_amd64.deb \
-    && wget https://dl.winehq.org/wine-builds/debian/dists/buster/main/binary-amd64/wine-stable_6.0.2~buster-1_amd64.deb \
-    && dpkg-deb -xv wine-stable-i386_6.0.2~buster-1_i386.deb wine-installer \
-    && dpkg-deb -xv wine-stable_6.0.2~buster-1_i386.deb wine-installer \
-    && dpkg-deb -xv wine-stable-amd64_6.0.2~buster-1_amd64.deb wine-installer \
-    && dpkg-deb -xv wine-stable_6.0.2~buster-1_amd64.deb wine-installer \
-    && mv ~/Downloads/wine-installer/opt/wine* ~/wine \
-    && rm -rf wine-installer
+FROM debian:bookworm-slim
 
-RUN ln -s ~/wine/bin/wine /usr/local/bin/wine \
-    && ln -s ~/wine/bin/wineboot /usr/local/bin/wineboot \
-    && ln -s ~/wine/bin/winecfg /usr/local/bin/winecfg \
-    && ln -s ~/wine/bin/wineserver /usr/local/bin/wineserver \
-    && chmod +x /usr/local/bin/wine /usr/local/bin/wineboot /usr/local/bin/winecfg /usr/local/bin/wineserver
+# Copy compiled box86 and box64 binaries
+COPY --from=build /box /
 
-RUN echo 'alias wine64="WINEPREFIX=~/.wine64 wine"' >> /root/.bashrc
+# Install libraries needed to run box
+RUN dpkg --add-architecture armhf \
+ && apt-get update \
+ && apt-get install --yes --no-install-recommends wget curl libc6:armhf libstdc++6:armhf ca-certificates 
+
+# `cabextract` is needed by winetricks to install most libraries
+# `xvfb` is needed in wine to spawn display window because some Windows program can't run without it (using `xvfb-run`)
+# If you are sure you don't need it, feel free to remove
+RUN apt install -y cabextract xvfb
+
+# Clean up
+RUN apt-get -y autoremove \
+ && apt-get clean autoclean \
+ && rm -rf /tmp/* /var/tmp/* /var/lib/apt/lists
+
+# Install wine, wine64, and winetricks
+COPY install-wine.sh /
+RUN bash /install-wine.sh \
+ && rm /install-wine.sh
+
+# Install box wrapper for wine
+COPY wrap-wine.sh /
+RUN bash /wrap-wine.sh \
+ && rm /wrap-wine.sh
 
 WORKDIR /root
+ENTRYPOINT ["bash", "-c"]
 CMD ["bash"]
-ENTRYPOINT ["sh", "-c", "update-binfmts", "--enable", "&&", "bash", "-c"]

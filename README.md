@@ -1,13 +1,13 @@
-Dockerfile for emulating x86_64 or amd64 Windows programs on arm64 using wine and box with ubuntu. **Must be in privileged mode for binfmts to be working!**
+Dockerfile for emulating win32 and win64 programs on arm64 using wine and box in Debian.
 
-# Running
-Using docker-compose
+## Using
+Docker compose
 ```bash
-sudo docker-compose -d up 
-sudo docker attach boxwine
+docker-compose -d up 
+docker attach winebox64
 ```
-Using docker
+Docker
 ```bash
-sudo docker build -t box-wine . 
-sudo docker run --name boxwine -ti --privileged box-wine
+docker build -t winebox64 . 
+docker run --name winebox64 -ti winebox64
 ```

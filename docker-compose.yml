@@ -2,6 +2,5 @@ version: '3.9'
 services:
   boxwine:
     build: .
-    privileged: true
     stdin_open: true
     tty: true
